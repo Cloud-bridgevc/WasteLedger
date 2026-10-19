@@ -1,0 +1,15 @@
+{
+  "name": "wasteledger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Commercial waste tracking and invoice reconciliation platform",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "node scripts/serve.mjs",
+    "report": "node scripts/demo-report.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

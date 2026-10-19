@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WasteLedger Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b4732'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h8' stroke='%23c6e86b' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Manrope:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="side" id="side">
+      <a class="brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M4 6h12M4 10h12M4 14h7" stroke="#c6e86b" stroke-width="2" stroke-linecap="round"/></svg></span>
+        WasteLedger
+      </a>
+      <div class="org"><span class="org-name" id="org-name"></span><span class="org-note">Fictional demo data</span></div>
+      <nav aria-label="Dashboard">
+        <p class="nav-h">Overview</p>
+        <a href="#portfolio" data-nav="portfolio">Portfolio</a>
+        <a href="#locations" data-nav="locations">Location comparison</a>
+        <p class="nav-h">Records</p>
+        <a href="#collections" data-nav="collections">Collection register</a>
+        <a href="#weights" data-nav="weights">Waste weight records</a>
+        <a href="#providers" data-nav="providers">Service providers</a>
+        <a href="#library" data-nav="library">Contracts &amp; invoices</a>
+        <p class="nav-h">Assurance</p>
+        <a href="#reconciliation" data-nav="reconciliation">Reconciliation</a>
+        <a href="#exceptions" data-nav="exceptions">Exception review <span class="count" id="exc-count"></span></a>
+        <a href="#reports" data-nav="reports">Reports</a>
+      </nav>
+      <div class="side-foot">
+        <div class="run" id="run-info"></div>
+        <button class="btn btn-ghost btn-sm" id="theme-btn" type="button">Toggle theme</button>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="top">
+        <button class="menu" id="menu" aria-label="Open navigation" aria-controls="side" aria-expanded="false">☰</button>
+        <div>
+          <h1 id="page-title">Portfolio</h1>
+          <p id="page-sub"></p>
+        </div>
+        <div class="top-actions" id="top-actions"></div>
+      </header>
+      <main id="view" tabindex="-1"></main>
+    </div>
+  </div>
+  <div class="drawer-back" id="drawer-back" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" role="dialog" aria-labelledby="drawer-title">
+    <header><h2 id="drawer-title"></h2><button class="x" id="drawer-close" aria-label="Close">✕</button></header>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

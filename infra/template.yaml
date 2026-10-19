@@ -1,0 +1,245 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: WasteLedger - document vault, extraction, scheduled reconciliation and demo-request API
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  VpcSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets that can reach the PostgreSQL instance (with NAT or VPC endpoints for S3, Textract, Bedrock, Secrets Manager)
+  LambdaSecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  DbSecretArn:
+    Type: String
+    Description: RDS-managed secret for the PostgreSQL user (host, port, dbname, username, password)
+  HubSpotSecretArn:
+    Type: String
+    Description: Secret holding {"accessToken":"..."} for the HubSpot private app
+  HubSpotSalesPipelineId:
+    Type: String
+  HubSpotDemoRequestedStageId:
+    Type: String
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-opus-5-5
+  AllowedOrigin:
+    Type: String
+    Default: https://www.wasteledger.example
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 1024
+    Timeout: 60
+    Tracing: Active
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        NODE_OPTIONS: --enable-source-maps
+
+Resources:
+  # ---------- Document vault ----------
+  DocumentsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: WasteLedger document encryption
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdmin
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root' }
+            Action: kms:*
+            Resource: '*'
+
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub wasteledger-documents-${Stage}-${AWS::AccountId}
+      VersioningConfiguration: { Status: Enabled }
+      ObjectLockEnabled: true   # retention is set per object by the upload service, so originals cannot be altered
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: aws:kms, KMSMasterKeyID: !GetAtt DocumentsKey.Arn }
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      OwnershipControls: { Rules: [{ ObjectOwnership: BucketOwnerEnforced }] }
+      LifecycleConfiguration:
+        Rules:
+          - Id: archive-old-originals
+            Status: Enabled
+            Transitions: [{ StorageClass: GLACIER_IR, TransitionInDays: 365 }]
+
+  DocumentsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      PolicyDocument:
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt DocumentsBucket.Arn, !Sub '${DocumentsBucket.Arn}/*']
+            Condition: { Bool: { aws:SecureTransport: 'false' } }
+
+  # ---------- Ingestion: S3 → classify (Bedrock) → extract (Textract) → PostgreSQL ----------
+  IngestDocumentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: ingest-document.handler
+      VpcConfig:
+        SubnetIds: !Ref VpcSubnetIds
+        SecurityGroupIds: !Ref LambdaSecurityGroupIds
+      Timeout: 300
+      ReservedConcurrentExecutions: 10
+      Environment:
+        Variables:
+          DB_SECRET_ARN: !Ref DbSecretArn
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          REVIEW_THRESHOLD: '0.9'
+          CLASSIFY_THRESHOLD: '0.8'
+      Policies:
+        - S3ReadPolicy: { BucketName: !Sub 'wasteledger-documents-${Stage}-${AWS::AccountId}' }
+        - Statement:
+            - Effect: Allow
+              Action: [kms:Decrypt]
+              Resource: !GetAtt DocumentsKey.Arn
+            - Effect: Allow
+              Action: [textract:DetectDocumentText, textract:StartDocumentAnalysis, textract:GetDocumentAnalysis, textract:StartExpenseAnalysis, textract:GetExpenseAnalysis]
+              Resource: '*'
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream, bedrock-mantle:CreateInference]
+              Resource: '*'
+            - Effect: Allow
+              Action: [secretsmanager:GetSecretValue]
+              Resource: !Ref DbSecretArn
+      Events:
+        NewDocument:
+          Type: S3
+          Properties:
+            Bucket: !Ref DocumentsBucket
+            Events: s3:ObjectCreated:*
+            Filter: { S3Key: { Rules: [{ Name: prefix, Value: incoming/ }] } }
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: [.js=.mjs]
+        Target: node22
+        EntryPoints: [backend/handlers/ingest-document.js]
+        External: ['@aws-sdk/*']
+
+  # ---------- Scheduled reconciliation ----------
+  ReconcileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: reconcile-scheduled.handler
+      VpcConfig:
+        SubnetIds: !Ref VpcSubnetIds
+        SecurityGroupIds: !Ref LambdaSecurityGroupIds
+      Timeout: 900
+      MemorySize: 2048
+      Environment:
+        Variables:
+          DB_SECRET_ARN: !Ref DbSecretArn
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          ENGINE_VERSION: core@0.1.0
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream, bedrock-mantle:CreateInference]
+              Resource: '*'
+            - Effect: Allow
+              Action: [secretsmanager:GetSecretValue]
+              Resource: !Ref DbSecretArn
+      Events:
+        Nightly:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(0 2 * * ? *)
+            ScheduleExpressionTimezone: Europe/London
+            RetryPolicy: { MaximumRetryAttempts: 2 }
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: [.js=.mjs]
+        Target: node22
+        EntryPoints: [backend/handlers/reconcile-scheduled.js]
+        External: ['@aws-sdk/*']
+
+  ReconcileErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scheduled reconciliation failed
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref ReconcileFunction }]
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  # ---------- Public demo-request API → HubSpot ----------
+  PublicApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: [!Ref AllowedOrigin]
+        AllowMethods: [POST]
+        AllowHeaders: [content-type]
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
+
+  DemoRequestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: demo-request.handler
+      Timeout: 15
+      MemorySize: 256
+      # No VpcConfig: this function only needs HubSpot, not the database.
+      Environment:
+        Variables:
+          HUBSPOT_SECRET_ARN: !Ref HubSpotSecretArn
+          HUBSPOT_SALES_PIPELINE_ID: !Ref HubSpotSalesPipelineId
+          HUBSPOT_DEMO_REQUESTED_STAGE_ID: !Ref HubSpotDemoRequestedStageId
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [secretsmanager:GetSecretValue]
+              Resource: !Ref HubSpotSecretArn
+      Events:
+        Post:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PublicApi
+            Path: /api/demo-request
+            Method: POST
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: [.js=.mjs]
+        Target: node22
+        EntryPoints: [backend/handlers/demo-request.js]
+        External: ['@aws-sdk/*']
+
+Outputs:
+  DocumentsBucketName:
+    Value: !Ref DocumentsBucket
+  PublicApiUrl:
+    Value: !Sub https://${PublicApi}.execute-api.${AWS::Region}.amazonaws.com
+  ReconcileFunctionName:
+    Value: !Ref ReconcileFunction
