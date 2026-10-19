@@ -1,37 +1,91 @@
-import { buildPortfolio, lookupsFor, FOOD_ESTIMATE, PLANTED_ISSUES } from '../core/demo-data.js';
+import { buildPortfolio, buildReviewQueue, lookupsFor, FOOD_ESTIMATE, PLANTED_ISSUES } from '../core/demo-data.js';
 import { runPortfolioChecks } from '../core/pipeline.js';
-import { aggregateWeights, weightBasis, explainReconciliation, reportToCSV, buildExceptionReport, round2, round3 } from '../core/engine.js';
+import { aggregateWeights, weightBasis, explainReconciliation, reportToCSV, buildExceptionReport, exceptionFingerprint, round2, round3 } from '../core/engine.js';
+import {
+  REVIEW_THRESHOLD, REVIEW_STATES, applyFieldReviews, buildRecords, acceptDocument, rejectDocument, fieldsNeedingReview,
+  stateOf, suggestSite, valueOf, isReviewed,
+} from '../core/review.js';
 
 // ---------- data ----------
 const RUN_AT = '2026-10-05T02:00:00Z'; // the fictional nightly run this view shows
-const data = buildPortfolio();
-const L = lookupsFor(data);
-const { reconciliations, anomalies } = runPortfolioChecks(data, { generatedAt: RUN_AT, lookups: L });
-const recById = new Map(reconciliations.map((r) => [r.invoiceId, r]));
-const invById = new Map(data.invoices.map((i) => [i.id, i]));
-const ticketByNo = new Map(data.tickets.map((t) => [t.ticketNo, t]));
-const weightById = new Map(data.weights.map((w) => [w.id, w]));
-const weightByTicket = new Map(data.weights.map((w) => [w.ticketNo, w]));
-const allExceptions = [...reconciliations.flatMap((r) => r.exceptions), ...anomalies];
-const reviewable = allExceptions.filter((e) => !e.rollup);
+const REVIEWER = 'demo.reviewer@calder-vale.example';
 const MONTHS = ['2026-07', '2026-08', '2026-09'];
 const monthName = (m) => new Date(m + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 
-// Which invoice line billed each ticket.
-const billedOn = new Map();
-for (const inv of data.invoices) for (const l of inv.lines) for (const it of l.items || []) {
-  billedOn.set(it.ticketNo, [...(billedOn.get(it.ticketNo) || []), { invoiceId: inv.id, lineNo: l.lineNo, quantity: it.quantity }]);
+const data = buildPortfolio();
+const L = lookupsFor(data);
+let queue = buildReviewQueue(data);
+
+// Derived state. compute() rebuilds it whenever records change (e.g. a document is accepted).
+let reconciliations, anomalies, recById, invById, ticketByNo, weightById, weightByTicket, allExceptions, reviewable, billedOn;
+function compute() {
+  ({ reconciliations, anomalies } = runPortfolioChecks(data, { generatedAt: RUN_AT, lookups: L }));
+  recById = new Map(reconciliations.map((r) => [r.invoiceId, r]));
+  invById = new Map(data.invoices.map((i) => [i.id, i]));
+  ticketByNo = new Map(data.tickets.map((t) => [t.ticketNo, t]));
+  weightById = new Map(data.weights.map((w) => [w.id, w]));
+  weightByTicket = new Map(data.weights.map((w) => [w.ticketNo, w]));
+  allExceptions = [...reconciliations.flatMap((r) => r.exceptions), ...anomalies];
+  reviewable = allExceptions.filter((e) => !e.rollup);
+  // Which invoice line billed each ticket.
+  billedOn = new Map();
+  for (const inv of data.invoices) for (const l of inv.lines) for (const it of l.items || []) {
+    billedOn.set(it.ticketNo, [...(billedOn.get(it.ticketNo) || []), { invoiceId: inv.id, lineNo: l.lineNo, quantity: it.quantity }]);
+  }
 }
 
-// Reviewer decisions stay in this browser only (demo). Production writes them to exception_events.
-const STORE_KEY = 'wasteledger.exceptionDecisions.v1';
+// Reviewer decisions on exceptions stay in this browser only (demo). Production writes them to exception_events.
+// They are keyed by fingerprint, because exception IDs are renumbered when records change.
+const STORE_KEY = 'wasteledger.exceptionDecisions.v2';
 let decisions = {};
 try { decisions = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch { decisions = {}; }
-const statusOf = (e) => decisions[e.id]?.status || 'open';
+const decisionOf = (e) => decisions[exceptionFingerprint(e)];
+const statusOf = (e) => decisionOf(e)?.status || 'open';
 function decide(id, status, note) {
-  decisions[id] = { status, note: note ?? decisions[id]?.note ?? '', at: new Date().toISOString() };
+  const e = reviewable.find((x) => x.id === id);
+  if (!e) return;
+  const key = exceptionFingerprint(e);
+  decisions[key] = { status, note: note ?? decisions[key]?.note ?? '', at: new Date().toISOString() };
   try { localStorage.setItem(STORE_KEY, JSON.stringify(decisions)); } catch { /* storage unavailable */ }
 }
+
+// Document review actions are also kept in this browser (demo) and replayed on load, in order.
+// Production stores them in extracted_fields, documents and document_reviews (backend/lib/review-store.js).
+const REVIEW_KEY = 'wasteledger.documentReviews.v1';
+let reviewLog = [];
+try { reviewLog = JSON.parse(localStorage.getItem(REVIEW_KEY) || '[]'); } catch { reviewLog = []; }
+
+function applyReviewAction(a) {
+  const i = queue.findIndex((d) => d.documentId === a.documentId);
+  if (i < 0) return;
+  let doc = queue[i];
+  if (a.edits && Object.keys(a.edits).length) doc = applyFieldReviews(doc, a.edits, { reviewer: a.reviewer, at: a.at });
+  if (a.action === 'accept') {
+    const out = acceptDocument(doc, a.confirmation, data, { reviewer: a.reviewer, at: a.at });
+    doc = out.document;
+    data.tickets.push(...out.records.tickets);
+    data.weights.push(...out.records.weights);
+    data.invoices.push(...out.records.invoices);
+    for (const u of out.updates.tickets) data.tickets[data.tickets.findIndex((t) => t.id === u.id)] = u;
+  }
+  if (a.action === 'reject') doc = rejectDocument(doc, { reviewer: a.reviewer, reason: a.reason, at: a.at });
+  queue[i] = doc;
+  // The extraction the anomaly checks read is the same document. Keep it in step with the review.
+  const x = data.extractions.findIndex((e) => e.documentId === doc.documentId);
+  if (x >= 0) data.extractions[x] = { ...data.extractions[x], fields: doc.fields, state: doc.state };
+}
+
+function recordReviewAction(a) {
+  applyReviewAction(a);
+  reviewLog.push(a);
+  try { localStorage.setItem(REVIEW_KEY, JSON.stringify(reviewLog)); } catch { /* storage unavailable */ }
+  compute();
+}
+
+for (const a of reviewLog) {
+  try { applyReviewAction(a); } catch (err) { console.warn('Skipped a stored review action', a.documentId, err.message); }
+}
+compute();
 
 // ---------- helpers ----------
 const $ = (s, r = document) => r.querySelector(s);
@@ -262,7 +316,7 @@ function pill(x) {
 
 function excHTML(e, { actions = false } = {}) {
   const st = statusOf(e);
-  const d = decisions[e.id];
+  const d = decisionOf(e);
   return `<article class="exc sev-${e.severity}" data-exc="${e.id}">
     <div class="top-row"><div><div class="ttl">${esc(e.title)}</div><div class="meta">${esc(e.id)} · ${esc(TYPE_LABEL[e.type] || e.type)} · ${esc(siteName(e.siteId))}${e.providerId ? ` · ${esc(provName(e.providerId))}` : ''}</div></div>
       ${e.financialImpact && !e.rollup ? `<span class="impact">${gbp(e.financialImpact)}</span>` : ''}</div>
@@ -584,7 +638,7 @@ views.exceptions = () => {
       $$('[data-note]', root).forEach((b) => b.addEventListener('click', () => {
         const id = b.closest('[data-exc]').dataset.exc;
         const e = reviewable.find((x) => x.id === id);
-        openDrawer(`Note on ${id}`, `${excHTML(e)}<label style="display:grid;gap:6px;font-weight:650;font-size:13px">Note<textarea class="note-in" id="note-in">${esc(decisions[id]?.note || '')}</textarea></label><div><button class="btn btn-primary btn-sm" id="note-save">Save note</button></div>`);
+        openDrawer(`Note on ${id}`, `${excHTML(e)}<label style="display:grid;gap:6px;font-weight:650;font-size:13px">Note<textarea class="note-in" id="note-in">${esc(decisionOf(e)?.note || '')}</textarea></label><div><button class="btn btn-primary btn-sm" id="note-save">Save note</button></div>`);
         $('#note-save').onclick = () => { decide(id, statusOf(e), $('#note-in').value.trim()); closeDrawer(); render(); };
       }));
     },
@@ -650,7 +704,7 @@ views.reports = () => {
   let exportJson;
   if (st.type === 'exceptions') {
     const rep = buildExceptionReport({ title: `Exception report · ${scope}`, generatedAt: new Date().toISOString(), period, reconciliations: recs, anomalies: anoms, lookups: L });
-    rep.exceptions = rep.exceptions.filter((e) => !e.rollup && ['open', 'disputed'].includes(statusOf(e))).map((e) => ({ ...e, status: statusOf(e), reviewerNote: decisions[e.id]?.note }));
+    rep.exceptions = rep.exceptions.filter((e) => !e.rollup && ['open', 'disputed'].includes(statusOf(e))).map((e) => ({ ...e, status: statusOf(e), reviewerNote: decisionOf(e)?.note }));
     rep.summary.openExceptions = rep.exceptions.length;
     rep.summary.disputedAmount = round2(rep.exceptions.filter((e) => e.financialImpact > 0).reduce((s, e) => s + e.financialImpact, 0));
     preview = `<h3>${esc(rep.title)}</h3>
@@ -698,6 +752,202 @@ views.reports = () => {
   };
 };
 
+// ---------- document review ----------
+const DOC_TYPE_LABEL = { collection_ticket: 'Collection ticket', weighbridge_ticket: 'Weighbridge slip', invoice: 'Invoice', contract: 'Contract', disposal_note: 'Disposal note', other: 'Unclassified' };
+const REVIEW_CHIP = {
+  needs_review: ['chip-warn', '!', 'Needs field review'],
+  extracted: ['chip-info', 'i', 'Ready to confirm'],
+  accepted: ['chip-ok', '✓', 'Accepted'],
+  rejected: ['chip-muted', '–', 'Rejected'],
+};
+const reviewChip = (st) => `<span class="chip ${REVIEW_CHIP[st][0]}">${REVIEW_CHIP[st][1]} ${REVIEW_CHIP[st][2]}</span>`;
+const isOpenDoc = (d) => ![REVIEW_STATES.ACCEPTED, REVIEW_STATES.REJECTED].includes(stateOf(d));
+const conf = (c) => `<span class="conf ${c < REVIEW_THRESHOLD ? 'low' : ''}"><span class="bar"><i style="width:${Math.round(c * 100)}%"></i></span><span class="num">${Math.round(c * 100)}%</span></span>`;
+const minConf = (d) => (d.fields.length ? Math.min(...d.fields.map((f) => f.confidence)) : d.classificationConfidence ?? 0);
+
+function suggestProvider(doc) {
+  const hint = String(doc.providerHint || '').toLowerCase();
+  return hint ? data.providers.find((p) => p.name.toLowerCase() === hint)?.id || null : null;
+}
+
+views.review = () => {
+  const st = (tableView.state.review ||= { show: 'open' });
+  const counts = {
+    open: queue.filter(isOpenDoc).length,
+    needs: queue.filter((d) => stateOf(d) === REVIEW_STATES.NEEDS_REVIEW).length,
+    ready: queue.filter((d) => stateOf(d) === REVIEW_STATES.EXTRACTED).length,
+    done: queue.filter((d) => !isOpenDoc(d)).length,
+  };
+  const rows = queue.filter((d) => (st.show === 'open' ? isOpenDoc(d) : st.show === 'done' ? !isOpenDoc(d) : true));
+  return {
+    title: 'Review queue',
+    sub: `Documents wait here until a person confirms the uncertain fields, the site and the provider. Nothing enters the register before that.`,
+    html: `<div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><span class="lab">Waiting</span><span class="val">${counts.open}</span></div>
+      <div class="kpi ${counts.needs ? 'alert' : ''}"><span class="lab">Fields below ${Math.round(REVIEW_THRESHOLD * 100)}% confidence</span><span class="val">${counts.needs}</span></div>
+      <div class="kpi"><span class="lab">Ready to confirm</span><span class="val">${counts.ready}</span></div>
+      <div class="kpi"><span class="lab">Accepted or rejected</span><span class="val">${counts.done}</span></div>
+    </div>
+    <section class="card">
+      <div class="filters">
+        <div class="segmented" role="group" aria-label="Show">${[['open', 'Waiting'], ['done', 'Processed'], ['all', 'All']].map(([v, l]) => `<button data-show="${v}" aria-pressed="${st.show === v}">${l}</button>`).join('')}</div>
+        <span class="grow">${rows.length} documents</span>
+      </div>
+      <div class="tbl-wrap"><table class="t"><thead><tr><th>Document</th><th>Type</th><th>Received</th><th>Printed site</th><th>Lowest confidence</th><th class="r">Fields to review</th><th>Status</th></tr></thead><tbody>
+      ${rows.map((d) => `<tr data-doc="${esc(d.documentId)}" class="${stateOf(d) === 'needs_review' ? 'flag-warn' : ''}">
+        <td><span class="mono">${esc(d.documentId)}</span><br><span class="muted" style="font-size:12px">${esc(d.fileName || '')}${d.inRegister ? ' · already in register' : ''}</span></td>
+        <td>${esc(DOC_TYPE_LABEL[d.docType] || d.docType)}<br><span class="muted" style="font-size:12px">classified at ${Math.round((d.classificationConfidence ?? 0) * 100)}%</span></td>
+        <td>${fdate(d.receivedAt.slice(0, 10))}</td>
+        <td>${esc(d.siteHint || '—')}</td>
+        <td>${conf(minConf(d))}</td>
+        <td class="r">${isOpenDoc(d) ? fieldsNeedingReview(d).length || '—' : '—'}</td>
+        <td>${reviewChip(stateOf(d))}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nothing waiting for review.</td></tr>'}
+      </tbody></table></div>
+      <p class="note" style="padding:0 18px 16px">In this demo, review decisions are saved in your browser only and replayed when the page loads. In production they are written to PostgreSQL with the reviewer's name (backend/handlers/review-api.js).</p>
+    </section>`,
+    wire(root) {
+      $$('[data-show]', root).forEach((b) => b.addEventListener('click', () => { st.show = b.dataset.show; render(); }));
+      $$('tr[data-doc]', root).forEach((tr) => tr.addEventListener('click', () => openReview(tr.dataset.doc)));
+    },
+  };
+};
+
+// What accepting would clear: a missing-collection or low-confidence exception that this document answers.
+function exceptionsClearedBy(records, doc) {
+  const scheduleOf = (e) => data.schedules.find((s) => s.id === e.evidence[0]?.ref);
+  return reviewable.filter((e) =>
+    (e.type === 'missing_collection_record' && records.tickets.some((t) => t.siteId === e.siteId && t.date === e.date && t.serviceCode === scheduleOf(e)?.serviceCode)) ||
+    (e.type === 'low_confidence_extraction' && e.evidence.some((x) => x.documentId === doc.documentId)));
+}
+
+let reviewAbort; // drawer listeners from the previous document
+function openReview(documentId) {
+  const doc = queue.find((d) => d.documentId === documentId);
+  const open = isOpenDoc(doc);
+  const supported = ['collection_ticket', 'weighbridge_ticket'].includes(doc.docType);
+  const inReg = doc.inRegister ? data.tickets.find((t) => t.documentId === doc.documentId) : null;
+  const pre = {
+    siteId: inReg?.siteId || doc.confirmation?.siteId || '',
+    providerId: inReg?.providerId || doc.confirmation?.providerId || '',
+    serviceCode: inReg?.serviceCode || doc.confirmation?.serviceCode || '',
+    stream: doc.confirmation?.stream || '',
+  };
+  const sSite = suggestSite(doc, data.sites);
+  const sProv = suggestProvider(doc);
+  const fieldRows = doc.fields.map((f) => {
+    const low = f.confidence < REVIEW_THRESHOLD;
+    return `<tr class="${low && !isReviewed(f) ? 'flag-warn' : ''}">
+      <td><strong>${esc(f.label || f.key)}</strong><br>${conf(f.confidence)}</td>
+      <td><span class="mono">${esc(f.value)}</span></td>
+      <td>${open ? `<input class="rv-in" data-key="${esc(f.key)}" value="${esc(valueOf(f))}" aria-label="${esc(f.label || f.key)}" style="width:100%;border:1px solid var(--border-strong);border-radius:6px;padding:5px 8px;background:var(--bg)">` : esc(valueOf(f))}
+        ${low ? (isReviewed(f) ? `<div class="muted" style="font-size:12px;margin-top:4px">✓ ${f.corrected ? 'Corrected' : 'Confirmed'} by ${esc(f.reviewedBy)}</div>` : open ? `<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:4px;font-weight:650"><input type="checkbox" class="rv-ok" data-key="${esc(f.key)}"> I have checked this against the document</label>` : '') : ''}
+      </td></tr>`;
+  }).join('');
+  const siteSel = `<select id="rv-site" ${open && !inReg ? '' : 'disabled'}><option value="">Choose site…</option>${data.sites.map((s) => `<option value="${s.id}" ${pre.siteId === s.id ? 'selected' : ''}>${esc(s.name)}${s.id === sSite ? ' (matches printed name)' : ''}</option>`).join('')}</select>`;
+  const provSel = `<select id="rv-prov" ${open && !inReg ? '' : 'disabled'}><option value="">Choose provider…</option>${data.providers.map((p) => `<option value="${p.id}" ${pre.providerId === p.id ? 'selected' : ''}>${esc(p.name)}${p.id === sProv ? ' (matches printed name)' : ''}</option>`).join('')}</select>`;
+  const selStyle = 'display:grid;gap:4px;font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em';
+
+  openDrawer(`Review ${doc.documentId}`, `
+    <dl class="kv">
+      <dt>File</dt><dd class="mono">${esc(doc.fileName || '—')}</dd>
+      <dt>Type</dt><dd>${esc(DOC_TYPE_LABEL[doc.docType] || doc.docType)} <span class="muted">· Bedrock, ${Math.round((doc.classificationConfidence ?? 0) * 100)}%</span></dd>
+      <dt>Status</dt><dd>${reviewChip(stateOf(doc))}</dd>
+      ${doc.inRegister ? `<dt>In register</dt><dd>Yes. Accepting updates ticket ${esc(inReg?.ticketNo)} instead of adding a new one.</dd>` : ''}
+      ${doc.rejectReason ? `<dt>Rejected</dt><dd>${esc(doc.rejectReason)} <span class="muted">(${esc(doc.rejectedBy)})</span></dd>` : ''}
+      ${doc.acceptedBy ? `<dt>Accepted by</dt><dd>${esc(doc.acceptedBy)}</dd>` : ''}
+    </dl>
+    ${doc.classificationReason ? `<div class="explain" style="background:var(--warn-soft)">${esc(doc.classificationReason)}</div>` : ''}
+    <div class="docbox"><span class="mono">${esc(doc.documentId)}</span><span class="muted">Original kept unchanged in S3</span></div>
+    ${doc.fields.length ? `<p class="sub-h">Extracted fields</p>
+    <div class="tbl-wrap"><table class="t" style="font-size:13px"><thead><tr><th>Field</th><th>Read as</th><th>Value to use</th></tr></thead><tbody>${fieldRows}</tbody></table></div>` : ''}
+    ${open && supported ? `<p class="sub-h">Confirm where it belongs</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label style="${selStyle}">Site${siteSel}</label>
+        <label style="${selStyle}">Provider${provSel}</label>
+        ${doc.docType === 'collection_ticket' ? `<label style="${selStyle};grid-column:1/-1">Contracted service<select id="rv-svc" ${inReg ? 'disabled' : ''}></select></label>` : ''}
+        ${doc.docType === 'weighbridge_ticket' ? `<label style="${selStyle};grid-column:1/-1">Waste stream<select id="rv-stream"><option value="">Choose stream…</option>${uniq(data.schedules.map((s) => s.stream)).map((s) => `<option ${pre.stream === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>` : ''}
+      </div>
+      <div id="rv-preview"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" id="rv-accept" disabled>Accept into register</button><button class="btn btn-ghost btn-sm" id="rv-save">Save field review only</button></div>` : ''}
+    ${open && !supported ? `<div class="explain">This document type cannot be added to the register from the review queue. Reject it with a reason, or re-upload it as the right kind of document.</div>` : ''}
+    ${open ? `<p class="sub-h">Reject</p><div style="display:grid;gap:8px"><textarea class="note-in" id="rv-reason" placeholder="Reason, e.g. duplicate copy of NG-558261, or not a waste document"></textarea><div><button class="btn btn-ghost btn-sm" id="rv-reject">Reject document</button></div></div>` : ''}`);
+
+  if (!open) return;
+  const body = $('#drawer-body');
+  reviewAbort?.abort();
+  reviewAbort = new AbortController();
+  const signal = reviewAbort.signal;
+
+  function editsFromForm() {
+    const edits = {};
+    for (const inp of $$('.rv-in', body)) {
+      const f = doc.fields.find((x) => x.key === inp.dataset.key);
+      const changed = inp.value.trim() !== String(valueOf(f));
+      const ticked = $(`.rv-ok[data-key="${CSS.escape(f.key)}"]`, body)?.checked;
+      if (changed) edits[f.key] = { value: inp.value.trim() };
+      else if (ticked) edits[f.key] = { confirm: true };
+    }
+    return edits;
+  }
+  function confirmationFromForm() {
+    const c = { siteId: $('#rv-site', body)?.value || '', providerId: $('#rv-prov', body)?.value || '' };
+    if ($('#rv-svc', body)) {
+      c.serviceCode = $('#rv-svc', body).value;
+      const sch = data.schedules.find((s) => s.siteId === c.siteId && s.serviceCode === c.serviceCode);
+      if (sch) { c.scheduledContainers = sch.containers; c.stream = sch.stream; }
+    }
+    if ($('#rv-stream', body)) c.stream = $('#rv-stream', body).value;
+    return c;
+  }
+  function fillServices() {
+    const sel = $('#rv-svc', body);
+    if (!sel) return;
+    const site = $('#rv-site', body).value;
+    const prov = $('#rv-prov', body).value;
+    const keep = sel.value || pre.serviceCode;
+    const svcs = data.contracts.filter((c) => c.providerId === prov && c.siteIds.includes(site)).flatMap((c) => c.services.filter((s) => s.billing === 'per_lift'));
+    sel.innerHTML = `<option value="">${svcs.length ? 'Choose service…' : 'No contracted lift service for this site and provider'}</option>` + svcs.map((s) => `<option value="${s.serviceCode}" ${keep === s.serviceCode ? 'selected' : ''}>${esc(s.serviceCode)} · ${esc(s.stream)}</option>`).join('');
+  }
+  function preview() {
+    fillServices();
+    const draft = applyFieldReviews(doc, editsFromForm(), { reviewer: REVIEWER });
+    const res = buildRecords(draft, confirmationFromForm(), data);
+    const box = $('#rv-preview', body);
+    if (!res.ok) {
+      box.innerHTML = `<div class="explain" style="background:var(--warn-soft)"><strong>Not ready to accept</strong><ul style="margin:6px 0 0;padding-left:18px">${res.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>`;
+    } else {
+      const t = res.records.tickets[0] || res.updates.tickets[0];
+      const w = res.records.weights[0];
+      const cleared = exceptionsClearedBy({ tickets: [...res.records.tickets, ...res.updates.tickets] }, doc);
+      box.innerHTML = `<div class="explain"><strong>${res.updates.tickets.length ? 'Will update' : 'Will add'}</strong>
+        ${t ? `<div>Collection ticket <span class="mono">${esc(t.ticketNo)}</span> · ${fdate(t.date)} · ${esc(siteName(t.siteId))} · ${t.containers} of ${t.scheduledContainers} lifted · ${t.status === 'collected' ? 'collected' : 'not collected'}</div>` : ''}
+        ${w ? `<div>Weight record ${kgf(w.netKg)} ${basisTag('verified')} for ticket <span class="mono">${esc(w.ticketNo)}</span> · ${esc(w.stream)} · ${fdate(w.date)}</div>` : ''}
+        ${cleared.length ? `<div style="margin-top:6px">Clears: ${cleared.map((e) => esc(e.title)).join('; ')}</div>` : ''}
+        <span class="src">Source document ${esc(doc.documentId)} stays linked to ${t || w ? 'this record' : 'these records'}.</span></div>`;
+    }
+    $('#rv-accept', body).disabled = !res.ok;
+  }
+  body.addEventListener('input', preview, { signal });
+  body.addEventListener('change', preview, { signal });
+  if ($('#rv-preview', body)) preview();
+
+  $('#rv-accept', body)?.addEventListener('click', () => {
+    const a = { action: 'accept', documentId: doc.documentId, edits: editsFromForm(), confirmation: confirmationFromForm(), reviewer: REVIEWER, at: new Date().toISOString() };
+    try { recordReviewAction(a); } catch (err) { return alert(err.message); }
+    closeDrawer(); render();
+  });
+  $('#rv-save', body)?.addEventListener('click', () => {
+    recordReviewAction({ action: 'fields', documentId: doc.documentId, edits: editsFromForm(), reviewer: REVIEWER, at: new Date().toISOString() });
+    render(); openReview(doc.documentId);
+  });
+  $('#rv-reject', body).addEventListener('click', () => {
+    const reason = $('#rv-reason', body).value.trim();
+    if (!reason) { $('#rv-reason', body).focus(); $('#rv-reason', body).setAttribute('aria-invalid', 'true'); return; }
+    recordReviewAction({ action: 'reject', documentId: doc.documentId, reason, reviewer: REVIEWER, at: new Date().toISOString() });
+    closeDrawer(); render();
+  });
+}
+
 // ---------- exports for list views ----------
 function exportList(kind) {
   const csv = (head, rows) => [head.join(','), ...rows.map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
@@ -720,6 +970,7 @@ function render() {
   $$('[data-nav]').forEach((a) => (a.dataset.nav === key ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
   const n = openExceptions().length;
   $('#exc-count').textContent = n || '';
+  $('#review-count').textContent = queue.filter(isOpenDoc).length || '';
   document.title = `${view.title} · WasteLedger`;
 }
 

@@ -89,6 +89,15 @@ function makeException(fields) {
   };
 }
 
+/**
+ * A stable key for an exception. Exception IDs are numbered per run, so anything that must survive
+ * a re-run (reviewer decisions, the exceptions table) keys on this instead.
+ */
+export function exceptionFingerprint(e) {
+  const refs = e.evidence.map((x) => x.ticketNo || x.ref).sort().join('|');
+  return `${e.type}:${e.invoiceId || ''}:${e.siteId || ''}:${e.date || ''}:${refs}`;
+}
+
 export function resetExceptionIds() {
   exceptionSeq = 0;
 }
@@ -486,13 +495,15 @@ export function detectWeightOutliers(weights, { threshold = 3.5, minSamples = 5 
 
 /** Extracted documents with fields below the confidence threshold go to a reviewer. */
 export function detectLowConfidence(extractions, threshold = 0.9) {
+  // A field a reviewer has confirmed or corrected no longer needs review.
+  const pending = (x) => x.fields.filter((f) => f.confidence < threshold && !f.reviewedAt);
   return extractions
-    .filter((x) => x.fields.some((f) => f.confidence < threshold))
+    .filter((x) => x.state !== 'rejected' && pending(x).length)
     .map((x) => makeException({
       type: EXCEPTION_TYPES.LOW_CONFIDENCE_EXTRACTION,
       severity: SEVERITY.LOW,
-      title: `${x.documentId}: ${x.fields.filter((f) => f.confidence < threshold).length} field(s) need human review`,
-      detail: x.fields.filter((f) => f.confidence < threshold).map((f) => `${f.label} read as "${f.value}" (${Math.round(f.confidence * 100)}% confidence)`).join('; '),
+      title: `${x.documentId}: ${pending(x).length} field(s) need human review`,
+      detail: pending(x).map((f) => `${f.label} read as "${f.value}" (${Math.round(f.confidence * 100)}% confidence)`).join('; '),
       evidence: [{ kind: 'document', ref: x.documentId, documentId: x.documentId }],
       siteId: x.siteId,
     }));

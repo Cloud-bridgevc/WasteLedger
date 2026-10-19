@@ -39,6 +39,7 @@
 | Field extraction | Amazon Textract ([backend/lib/textract.js](../backend/lib/textract.js)) | `AnalyzeExpense` for invoices. `AnalyzeDocument` + QUERIES for tickets and weighbridge slips. Confidence is stored per field. |
 | Document type | Amazon Bedrock ([backend/lib/bedrock.js](../backend/lib/bedrock.js)) | Structured JSON output with a fixed enum. Below 0.8 confidence, or a refusal, sends the document to manual review. |
 | Explanations | Amazon Bedrock | The model only sees engine output. Every £ amount and record ID in its text must appear in the facts, or the template explanation is used. |
+| Document review | [core/review.js](../core/review.js), [backend/handlers/review-api.js](../backend/handlers/review-api.js) | A person confirms every field read below 90% confidence, plus the site and provider, before a document's values enter the register. The same rules run in the dashboard and the API. |
 | Operational records | PostgreSQL ([db/schema.sql](../db/schema.sql)) | Each record links to `documents.id`. Exceptions are de-duplicated by fingerprint across runs. Reviewer decisions are kept in `exception_events`. |
 | Scheduling | EventBridge Scheduler → Lambda | Nightly, plus an on-demand event when an invoice is accepted. |
 
@@ -50,6 +51,17 @@
 4. **Every exception has evidence.** There is a database `CHECK` on `jsonb_array_length(evidence) > 0`, and a test.
 5. **No derived environmental metrics.** The engine has no recycling-rate, diversion, savings or emissions functions. Provider-supplied figures of that kind would be stored as documents and shown as the provider's statement.
 
+## Document review
+
+`ingest-document` stops at `needs_review` (a field below 0.9 confidence, or an unclassified document) or `extracted` (all fields clear). A reviewer then works through the queue (`#review` in the dashboard, `/api/review/*` in production):
+
+1. **Fields.** Every field below the threshold must be confirmed against the document or corrected. Edits and confirmations are stored per field (`extracted_fields.reviewed_*`) with the reviewer's name.
+2. **Where it belongs.** The reviewer picks the site and provider. The printed name is shown as a suggestion and is never applied automatically. For tickets they also pick the contracted service, which must exist for that site and provider on the collection date.
+3. **Checks before accepting.** Values must parse (UK day-first dates, whole container counts, weights in kg or t). For weighbridge slips, gross − tare must equal net. For invoices, lines must add up to the total. Ticket numbers already in the register from another document are refused.
+4. **Accept or reject.** Accepting writes the records in one transaction with their `document_id`. A document already in the register updates its existing row instead of adding another. Rejecting needs a reason. Each step is logged in `document_reviews`.
+
+The database enforces the main rule as well: the `require_accepted_document` trigger refuses any ticket, weight or invoice whose source document is not `accepted`. The API takes the reviewer and organisation from the JWT (`email`, `custom:org_id`) and only lets the `reviewers` and `admins` groups make changes. `scripts/review-db-check.mjs` runs the whole flow against a real database.
+
 ## Variance decomposition
 
 For lift lines, billed − supported = Σ(per-ticket problem quantity × billed rate) + supported quantity × (billed rate − contract rate).
@@ -57,8 +69,8 @@ Per-ticket exceptions carry the first term. The rate exception carries the secon
 
 ## Open items before production
 
-- **Review service.** The UI and API where reviewers confirm low-confidence fields and map accepted documents to tickets, weights and invoices. The ingest Lambda stops at `needs_review` / `extracted` by design.
 - **Bedrock access.** Enable the Claude model in the Bedrock console for the deployment region, and confirm the IAM action names for the Bedrock Mantle endpoint in your account (the template grants `bedrock:InvokeModel*` and `bedrock-mantle:CreateInference`).
 - **Refusal fallback.** On Bedrock, refusals are handled by sending the document to manual review or by using the template explanation. No second model is called.
-- **Auth.** Dashboard sign-in (e.g. Cognito) and per-organisation row-level security in PostgreSQL.
+- **Auth.** The review API expects a Cognito (or other OIDC) user pool whose tokens carry `email`, `custom:org_id` and `cognito:groups`. The dashboard itself still needs sign-in, and PostgreSQL still needs per-organisation row-level security.
+- **Dashboard ↔ API.** The demo dashboard runs review in the browser against demo data. Pointing it at `/api/review/*` needs the sign-in above.
 - **Static hosting.** Serve `web/` and `core/` from S3 + CloudFront at the same origin, so the browser can import `../core/*.js`.

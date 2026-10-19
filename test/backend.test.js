@@ -47,3 +47,17 @@ test('exception fingerprints are stable across runs', () => {
   assert.deepEqual(rec.exceptions.map(fingerprint), again.exceptions.map(fingerprint));
   assert.equal(new Set(rec.exceptions.map(fingerprint)).size, rec.exceptions.length);
 });
+
+const { handler: reviewApi, identityFrom } = await import('../backend/handlers/review-api.js');
+const evt = (claims, method = 'GET', routeKey = 'GET /api/review/queue') => ({
+  routeKey, requestContext: { http: { method }, authorizer: claims ? { jwt: { claims } } : undefined }, pathParameters: { id: 'DOC-1' },
+});
+
+test('review API: reviewer and organisation come only from the verified token', async () => {
+  assert.equal((await reviewApi(evt(null))).statusCode, 401);
+  assert.equal((await reviewApi(evt({ email: 'a@example.test' }))).statusCode, 401, 'no organisation claim');
+  const viewer = { email: 'a@example.test', 'custom:org_id': 'ORG-CVE', 'cognito:groups': '[viewers]' };
+  const res = await reviewApi({ ...evt(viewer, 'POST', 'POST /api/review/documents/{id}/accept'), body: JSON.stringify({ reviewer: 'someone.else@example.test' }) });
+  assert.equal(res.statusCode, 403, 'viewers cannot change documents');
+  assert.deepEqual(identityFrom(evt({ email: 'r@example.test', 'custom:org_id': 'ORG-CVE', 'cognito:groups': '[reviewers admins]' })), { reviewer: 'r@example.test', orgId: 'ORG-CVE', canReview: true });
+});

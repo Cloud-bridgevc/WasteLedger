@@ -289,6 +289,73 @@ function buildExtractions(tickets, invoices) {
   ];
 }
 
+// Documents waiting for a person in the review queue. Two of them are the paperwork for the
+// planted "missing collection" days, which turned up late. Accepting them clears those exceptions.
+export function buildReviewQueue(portfolio) {
+  const used = new Set(portfolio.tickets.map((t) => t.ticketNo));
+  const nextFree = (prefix, after) => {
+    let n = after + 1;
+    while (used.has(`${prefix}-${n}`)) n += 1;
+    used.add(`${prefix}-${n}`);
+    return `${prefix}-${n}`;
+  };
+  const numAfter = (siteId, serviceCode, date) => {
+    const before = portfolio.tickets.filter((t) => t.siteId === siteId && t.serviceCode === serviceCode && t.date < date).at(-1);
+    return Number(before.ticketNo.split('-')[1]);
+  };
+  const ldsNo = nextFree('NG', numAfter('SITE-LDS', 'GW-1100-LIFT', '2026-09-21'));
+  const shfNo = nextFree('NG', numAfter('SITE-SHF', 'GW-1100-LIFT', '2026-09-16'));
+  const existing = portfolio.extractions.find((x) => x.fields.some((f) => f.confidence < 0.9));
+  const f = (key, label, value, confidence) => ({ key, label, value, confidence });
+  return [
+    {
+      documentId: `DOC-TKT-${ldsNo}`, fileName: `northgate_ticket_${ldsNo}.jpg`, receivedAt: '2026-10-03T08:14:00Z', state: 'needs_review',
+      docType: 'collection_ticket', classifiedBy: 'bedrock', classificationConfidence: 0.97, siteHint: 'Harbourline Grand', providerHint: 'Northgate Waste Services',
+      fields: [
+        f('ticketNo', 'Ticket number', ldsNo, 0.98),
+        f('date', 'Collection date', '21/09/2026', 0.97),
+        f('site', 'Site', 'Harbourline Grand', 0.95),
+        f('container', 'Container', '1100L GW', 0.94),
+        f('containers', 'Containers lifted (handwritten)', '2', 0.71),
+      ],
+    },
+    {
+      documentId: `DOC-WB-${ldsNo}`, fileName: `wakefield_weighbridge_${ldsNo}.pdf`, receivedAt: '2026-10-03T08:15:00Z', state: 'extracted',
+      docType: 'weighbridge_ticket', classifiedBy: 'bedrock', classificationConfidence: 0.96, siteHint: 'Harbourline Grand', providerHint: 'Northgate Waste Services',
+      fields: [
+        f('ticketNo', 'Collection ticket referenced', ldsNo, 0.97),
+        f('weighbridgeNo', 'Weighbridge ticket', 'WB-77214', 0.96),
+        f('date', 'Date weighed', '21 Sep 2026', 0.95),
+        f('gross', 'Gross weight', '12,840 kg', 0.93),
+        f('tare', 'Tare weight', '12,425 kg', 0.93),
+        f('net', 'Net weight', '415 kg', 0.95),
+        f('wasteCode', 'EWC code', '20 03 01', 0.92),
+      ],
+    },
+    {
+      documentId: `DOC-TKT-${shfNo}`, fileName: `scan_riverside_${shfNo}.pdf`, receivedAt: '2026-10-04T11:02:00Z', state: 'needs_review',
+      docType: 'collection_ticket', classifiedBy: 'bedrock', classificationConfidence: 0.94, siteHint: 'Riverside Exchange', providerHint: 'Northgate Waste Services',
+      fields: [
+        f('ticketNo', 'Ticket number', shfNo, 0.96),
+        f('date', 'Collection date', '16/O9/2026', 0.64), // letter O read for zero
+        f('site', 'Site', 'Riverside Exchange', 0.92),
+        f('container', 'Container', '1100L GW', 0.93),
+        f('containers', 'Containers lifted', '4', 0.96),
+      ],
+    },
+    {
+      ...existing, fileName: `${existing.documentId.toLowerCase()}.jpg`, receivedAt: '2026-09-15T07:40:00Z', state: 'needs_review',
+      providerHint: 'Northgate Waste Services', siteHint: 'Harbourline Grand', inRegister: true,
+    },
+    {
+      documentId: 'DOC-UPL-0931', fileName: 'IMG_0931.jpg', receivedAt: '2026-10-04T16:45:00Z', state: 'needs_review',
+      docType: 'other', classifiedBy: 'bedrock', classificationConfidence: 0.42,
+      classificationReason: 'Photo of a bin store with a handwritten note. No ticket number, date or weights are printed.',
+      fields: [],
+    },
+  ];
+}
+
 export function lookupsFor(portfolio) {
   return {
     sites: Object.fromEntries(portfolio.sites.map((s) => [s.id, s])),

@@ -246,3 +246,57 @@ CREATE TABLE exception_events (
   to_status     exc_status,
   note          text
 );
+
+-- ---------- Document review ----------
+-- A person confirms low-confidence fields, the site and the provider before a document's values
+-- enter the register (core/review.js, backend/handlers/review-api.js).
+
+ALTER TABLE documents
+  ADD COLUMN file_name      text,
+  ADD COLUMN confirmation   jsonb,         -- {siteId, providerId, serviceCode, stream, …} as confirmed by the reviewer
+  ADD COLUMN reviewed_by    text,
+  ADD COLUMN reviewed_at    timestamptz,
+  ADD COLUMN reject_reason  text,
+  ADD CONSTRAINT reject_needs_reason CHECK (state <> 'rejected' OR reject_reason IS NOT NULL);
+
+-- Invoice line items as extracted, with per-cell confidence, plus the reviewer's corrections.
+CREATE TABLE extracted_lines (
+  document_id   text NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  line_index    integer NOT NULL,
+  extracted     jsonb NOT NULL,            -- {description, quantity, unitRate, amount, confidence:{…}}
+  reviewed      jsonb,                     -- {…corrected values, serviceCode, tickets}
+  reviewed_by   text,
+  reviewed_at   timestamptz,
+  PRIMARY KEY (document_id, line_index)
+);
+
+-- Who did what to a document, in order.
+CREATE TABLE document_reviews (
+  id            bigserial PRIMARY KEY,
+  document_id   text NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  at            timestamptz NOT NULL DEFAULT now(),
+  actor         text NOT NULL,
+  action        text NOT NULL CHECK (action IN ('fields_reviewed', 'accepted', 'rejected')),
+  detail        jsonb
+);
+CREATE INDEX ON document_reviews (document_id);
+
+-- Register records that cite a source document may only come from an accepted document.
+-- Manual entries (document_id NULL) are allowed and are labelled by their source column.
+CREATE FUNCTION require_accepted_document() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.document_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM documents d WHERE d.id = NEW.document_id AND d.state = 'accepted'
+  ) THEN
+    RAISE EXCEPTION 'Document % has not been accepted in review; its values cannot enter %', NEW.document_id, TG_TABLE_NAME
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER collection_tickets_accepted_doc BEFORE INSERT OR UPDATE OF document_id ON collection_tickets
+  FOR EACH ROW EXECUTE FUNCTION require_accepted_document();
+CREATE TRIGGER weight_records_accepted_doc BEFORE INSERT OR UPDATE OF document_id ON weight_records
+  FOR EACH ROW EXECUTE FUNCTION require_accepted_document();
+CREATE TRIGGER invoices_accepted_doc BEFORE INSERT OR UPDATE OF document_id ON invoices
+  FOR EACH ROW EXECUTE FUNCTION require_accepted_document();

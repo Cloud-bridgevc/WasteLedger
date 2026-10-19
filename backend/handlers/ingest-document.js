@@ -55,12 +55,20 @@ export async function handler(event) {
       await db.query('INSERT INTO extracted_fields (document_id, field_key, field_label, raw_value, confidence, page, bbox) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [docId, f.key, f.label, f.value, f.confidence, f.page ?? null, f.bbox ? JSON.stringify(f.bbox) : null]);
     }
+    // Invoice line items, in the shape core/review.js expects: values plus a confidence per cell.
+    for (const [i, cells] of (out.lines || []).entries()) {
+      const cell = (k) => cells[k] || { value: '', confidence: 0 };
+      const line = {
+        description: cell('ITEM').value, quantity: cell('QUANTITY').value, unitRate: cell('UNIT_PRICE').value, amount: cell('PRICE').value,
+        confidence: { description: cell('ITEM').confidence, quantity: cell('QUANTITY').confidence, unitRate: cell('UNIT_PRICE').confidence, amount: cell('PRICE').confidence },
+      };
+      await db.query('INSERT INTO extracted_lines (document_id, line_index, extracted) VALUES ($1,$2,$3)', [docId, i, JSON.stringify(line)]);
+    }
     const lowLines = (out.lines || []).some((l) => Object.values(l).some((c) => c.confidence < REVIEW_THRESHOLD));
     const needsReview = lowLines || out.fields.some((f) => f.confidence < REVIEW_THRESHOLD);
     await db.query('UPDATE documents SET state = $2, textract_job = $3 WHERE id = $1', [docId, needsReview ? 'needs_review' : 'extracted', out.jobId]);
     console.log(JSON.stringify({ msg: 'document extracted', docId, docType: cls.docType, fields: out.fields.length, needsReview }));
-    // Accepted documents are mapped to collection_tickets / weight_records / invoices by the review service
-    // after a person confirms the site and provider match. This keeps a misread site name from
-    // attaching a charge to the wrong location.
+    // A person then confirms the fields, site and provider in the review queue (handlers/review-api.js),
+    // which maps the document into collection_tickets / weight_records / invoices.
   }
 }

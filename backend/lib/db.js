@@ -2,12 +2,18 @@
 // Loaders return records in the shapes core/engine.js expects.
 
 import pg from 'pg';
+import { exceptionFingerprint as fingerprint } from '../../core/engine.js';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 
 let pool;
 
 export async function getPool() {
   if (pool) return pool;
+  // Local development and integration tests: a plain connection string.
+  if (process.env.DATABASE_URL) {
+    pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+    return pool;
+  }
   const sm = new SecretsManagerClient({});
   const { SecretString } = await sm.send(new GetSecretValueCommand({ SecretId: process.env.DB_SECRET_ARN }));
   const s = JSON.parse(SecretString);
@@ -35,16 +41,7 @@ export async function loadOrgData(orgId, period) {
   const siteIds = sites.map((s) => s.id);
   const providers = await q('SELECT DISTINCT p.id, p.name FROM providers p JOIN contracts c ON c.provider_id = p.id JOIN contract_sites cs ON cs.contract_id = c.id WHERE cs.site_id = ANY($1)', [siteIds]);
 
-  const contractRows = await q(`SELECT c.*, array_agg(DISTINCT cs.site_id) AS site_ids FROM contracts c JOIN contract_sites cs ON cs.contract_id = c.id WHERE cs.site_id = ANY($1) GROUP BY c.id`, [siteIds]);
-  const services = await q('SELECT * FROM contract_services WHERE contract_id = ANY($1)', [contractRows.map((c) => c.id)]);
-  const contracts = contractRows.map((c) => ({
-    id: c.id, providerId: c.provider_id, documentId: c.document_id, siteIds: c.site_ids,
-    effectiveFrom: iso(c.effective_from), effectiveTo: iso(c.effective_to),
-    services: services.filter((s) => s.contract_id === c.id).map((s) => ({
-      serviceCode: s.service_code, stream: s.stream, container: s.container, billing: s.billing, unit: s.unit,
-      rate: num(s.rate), clause: s.clause, toleranceT: num(s.tolerance_t), description: s.description,
-    })),
-  }));
+  const contracts = await loadContractsForSites(q, siteIds);
 
   const schedules = (await q('SELECT * FROM schedules WHERE site_id = ANY($1)', [siteIds])).map((s) => ({
     id: s.id, siteId: s.site_id, providerId: s.provider_id, serviceCode: s.service_code, stream: s.stream, days: s.days, containers: s.containers, effectiveFrom: iso(s.effective_from),
@@ -83,11 +80,22 @@ export async function loadOrgData(orgId, period) {
   };
 }
 
-/** A stable key so a re-run updates the same exception instead of creating a duplicate. */
-export function fingerprint(e) {
-  const refs = e.evidence.map((x) => x.ticketNo || x.ref).sort().join('|');
-  return `${e.type}:${e.invoiceId || ''}:${e.siteId || ''}:${e.date || ''}:${refs}`;
+/** Contracts (with services) covering any of the given sites, in core/engine.js shape. */
+export async function loadContractsForSites(q, siteIds) {
+  const contractRows = await q(`SELECT c.*, array_agg(DISTINCT cs.site_id) AS site_ids FROM contracts c JOIN contract_sites cs ON cs.contract_id = c.id WHERE cs.site_id = ANY($1) GROUP BY c.id`, [siteIds]);
+  const services = await q('SELECT * FROM contract_services WHERE contract_id = ANY($1)', [contractRows.map((c) => c.id)]);
+  return contractRows.map((c) => ({
+    id: c.id, providerId: c.provider_id, documentId: c.document_id, siteIds: c.site_ids,
+    effectiveFrom: iso(c.effective_from), effectiveTo: iso(c.effective_to),
+    services: services.filter((s) => s.contract_id === c.id).map((s) => ({
+      serviceCode: s.service_code, stream: s.stream, container: s.container, billing: s.billing, unit: s.unit,
+      rate: num(s.rate), clause: s.clause, toleranceT: num(s.tolerance_t), description: s.description,
+    })),
+  }));
+
 }
+
+export { exceptionFingerprint as fingerprint } from '../../core/engine.js';
 
 export async function saveRun({ orgId, trigger, engineVersion, reconciliations, exceptions, explanations, summary }) {
   const db = await getPool();
@@ -127,4 +135,9 @@ export async function saveRun({ orgId, trigger, engineVersion, reconciliations, 
 export async function listOrgIds() {
   const db = await getPool();
   return (await db.query('SELECT id FROM organisations ORDER BY id')).rows.map((r) => r.id);
+}
+
+export async function closePool() {
+  if (pool) await pool.end();
+  pool = undefined;
 }

@@ -28,6 +28,15 @@ Parameters:
   AllowedOrigin:
     Type: String
     Default: https://www.wasteledger.example
+  DashboardOrigin:
+    Type: String
+    Default: https://app.wasteledger.example
+  AuthIssuerUrl:
+    Type: String
+    Description: OIDC issuer for dashboard users, e.g. https://cognito-idp.eu-west-2.amazonaws.com/<user-pool-id>. Tokens must carry email, custom:org_id and cognito:groups.
+  AuthAudience:
+    Type: String
+    Description: App client ID the dashboard tokens are issued for
 
 Globals:
   Function:
@@ -236,7 +245,72 @@ Resources:
         EntryPoints: [backend/handlers/demo-request.js]
         External: ['@aws-sdk/*']
 
+  # ---------- Document review (authenticated) ----------
+  ReviewApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: [!Ref DashboardOrigin]
+        AllowMethods: [GET, POST]
+        AllowHeaders: [authorization, content-type]
+      Auth:
+        DefaultAuthorizer: DashboardJwt
+        Authorizers:
+          DashboardJwt:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Ref AuthIssuerUrl
+              audience: [!Ref AuthAudience]
+
+  ReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: review-api.handler
+      Timeout: 30
+      MemorySize: 512
+      VpcConfig:
+        SubnetIds: !Ref VpcSubnetIds
+        SecurityGroupIds: !Ref LambdaSecurityGroupIds
+      Environment:
+        Variables:
+          DB_SECRET_ARN: !Ref DbSecretArn
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [secretsmanager:GetSecretValue]
+              Resource: !Ref DbSecretArn
+      Events:
+        Queue:
+          Type: HttpApi
+          Properties: { ApiId: !Ref ReviewApi, Path: /api/review/queue, Method: GET }
+        GetDocument:
+          Type: HttpApi
+          Properties: { ApiId: !Ref ReviewApi, Path: '/api/review/documents/{id}', Method: GET }
+        SaveFields:
+          Type: HttpApi
+          Properties: { ApiId: !Ref ReviewApi, Path: '/api/review/documents/{id}/fields', Method: POST }
+        Preview:
+          Type: HttpApi
+          Properties: { ApiId: !Ref ReviewApi, Path: '/api/review/documents/{id}/preview', Method: POST }
+        Accept:
+          Type: HttpApi
+          Properties: { ApiId: !Ref ReviewApi, Path: '/api/review/documents/{id}/accept', Method: POST }
+        Reject:
+          Type: HttpApi
+          Properties: { ApiId: !Ref ReviewApi, Path: '/api/review/documents/{id}/reject', Method: POST }
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        OutExtension: [.js=.mjs]
+        Target: node22
+        EntryPoints: [backend/handlers/review-api.js]
+        External: ['@aws-sdk/*']
+
 Outputs:
+  ReviewApiUrl:
+    Value: !Sub https://${ReviewApi}.execute-api.${AWS::Region}.amazonaws.com
   DocumentsBucketName:
     Value: !Ref DocumentsBucket
   PublicApiUrl:

@@ -108,7 +108,7 @@ table.t tr.flag-warn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 .drawer header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
 .drawer h2 { margin: 0; font-size: 16px; }
 .drawer .x { background: none; border: 1px solid var(--border); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; }
-.drawer-body { padding: 18px 20px 40px; overflow: auto; display: grid; gap: 16px; align-content: start; }
+.drawer-body { padding: 18px 20px 40px; overflow: auto; display: grid; grid-auto-rows: max-content; gap: 16px; align-content: start; flex: 1 1 auto; min-height: 0; }
 dl.kv { margin: 0; display: grid; grid-template-columns: 160px 1fr; gap: 8px 14px; font-size: 13.5px; }
 dl.kv dt { color: var(--text-3); }
 dl.kv dd { margin: 0; font-weight: 600; }
@@ -151,3 +151,8 @@ textarea.note-in { width: 100%; border: 1px solid var(--border-strong); border-r
   .card { box-shadow: none; break-inside: avoid; }
 }
 table.t .mono { white-space: nowrap; }
+.conf { display: inline-flex; align-items: center; gap: 8px; }
+.conf .bar { width: 64px; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.conf .bar i { display: block; height: 100%; background: var(--forest-500); border-radius: 3px; }
+.conf.low .bar i { background: var(--warn); }
+#drawer-body select { border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 10px; background: var(--surface); font-size: 13.5px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text); }
