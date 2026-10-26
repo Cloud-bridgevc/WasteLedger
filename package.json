@@ -5,6 +5,7 @@
   "description": "Commercial waste tracking and invoice reconciliation platform",
   "type": "module",
   "scripts": {
+    "build": "node scripts/build.mjs",
     "test": "node --test test/*.test.js",
     "dev": "node scripts/serve.mjs",
     "report": "node scripts/demo-report.mjs"

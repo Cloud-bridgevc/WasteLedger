@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WasteLedger: commercial waste reconciliation</title>
+  <meta name="description" content="WasteLedger checks every commercial waste charge against the collection ticket, weight record and contract rate behind it, across all your sites.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b4732'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h8' stroke='%23c6e86b' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Manrope:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+  <nav class="nav" aria-label="Main">
+    <div class="wrap">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M4 6h12M4 10h12M4 14h7" stroke="#c6e86b" stroke-width="2" stroke-linecap="round"/></svg></span>
+        WasteLedger
+      </a>
+      <div class="nav-links" id="nav-links">
+        <a href="#product">Product</a>
+        <a href="#demo">Live demo</a>
+        <a href="#use-cases">Use cases</a>
+        <a href="#evidence">Evidence</a>
+        <a href="#pricing">Pricing</a>
+      </div>
+      <button class="menu-btn" aria-expanded="false" aria-controls="nav-links" id="menu-btn">Menu</button>
+      <div class="nav-cta">
+        <a class="btn btn-ghost btn-sm" href="app.html">Open dashboard</a>
+        <a class="btn btn-primary btn-sm" href="#request">Request a demo</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow">Commercial waste operations</p>
+        <h1>Every waste charge, traced to <em>the ticket behind it.</em></h1>
+        <p class="lede">WasteLedger brings collection tickets, weighbridge records, contracts and invoices from all your sites into one ledger. It checks each charge against the evidence and shows you what doesn't add up.</p>
+        <div class="hero-actions">
+          <a class="btn btn-lime" href="#demo">Run the reconciliation demo</a>
+          <a class="btn btn-ghost" href="#request">Talk to us</a>
+        </div>
+        <p class="hero-note">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" stroke="currentColor"/><path d="M8 7v4M8 5v.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          Every figure on this page comes from fictional sample records, computed live in your browser.
+        </p>
+      </div>
+      <div class="hero-card" id="hero-card" aria-label="Sample reconciliation result">
+        <span class="hc-stack" aria-hidden="true"></span>
+        <span class="hc-badge" id="hc-badge">Checking…</span>
+        <header>
+          <div>
+            <h3 id="hc-title">Invoice</h3>
+            <div class="meta" id="hc-meta"></div>
+          </div>
+          <span class="chip chip-muted" id="hc-status">—</span>
+        </header>
+        <div class="hc-rows" id="hc-rows"></div>
+        <div class="hc-foot">
+          <span>Billed but not supported by records</span>
+          <strong id="hc-var">—</strong>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section" id="product">
+    <div class="wrap">
+      <p class="eyebrow">What it does</p>
+      <h2 class="display">Five checks, one ledger, every site.</h2>
+      <p class="lede">Waste paperwork turns up as driver tickets, weighbridge slips, provider portals and monthly invoices. WasteLedger reads them, links them, and does the checking your team doesn't have time for.</p>
+      <div class="caps">
+        <article class="cap">
+          <span class="n">01</span>
+          <div class="ic" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M5 2.5h7l3 3v12H5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 9h4M8 12h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+          <h3>Record extraction</h3>
+          <p>Reads tickets, weight slips, invoices and disposal notes. Low-confidence fields go to a person before they count.</p>
+        </article>
+        <article class="cap">
+          <span class="n">02</span>
+          <div class="ic" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M3 6h14M3 14h14M7 3l-4 3 4 3M13 11l4 3-4 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3>Invoice reconciliation</h3>
+          <p>Matches each invoice line to collection tickets, weight records and the contracted rate.</p>
+        </article>
+        <article class="cap">
+          <span class="n">03</span>
+          <div class="ic" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M10 3 2.5 16.5h15z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 8v4M10 14.2v.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+          <h3>Anomaly detection</h3>
+          <p>Flags duplicate entries, missing collections, unusual weights and charges that don't match the contract.</p>
+        </article>
+        <article class="cap">
+          <span class="n">04</span>
+          <div class="ic" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M3 16.5h14M5 13V9M9 13V5M13 13v-3M17 13V7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+          <h3>Waste trend analysis</h3>
+          <p>Recorded volumes by site, month, stream and provider. Measured and estimated weights are always kept apart.</p>
+        </article>
+        <article class="cap">
+          <span class="n">05</span>
+          <div class="ic" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none"><path d="M4 3h12v14H4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 7h6M7 10h6M7 13h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+          <h3>Operations reporting</h3>
+          <p>Exception reports and activity summaries that cite the record behind every number, ready to send to a provider.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="demo">
+    <div class="wrap">
+      <p class="eyebrow">Interactive demonstration</p>
+      <h2 class="display">Watch one invoice get checked.</h2>
+      <p class="lede">A fictional September invoice from a fictional contractor for a fictional Leeds hotel. Read the documents, reconcile, then build the exception report. Every step runs the same engine as the product.</p>
+
+      <div class="demo" id="demo-app">
+        <div class="demo-bar">
+          <div>
+            <div class="title" id="demo-title">Harbourline Grand, Leeds · September 2026</div>
+            <div class="sub">Northgate Waste Services · general waste and recycling</div>
+          </div>
+          <div class="steps" role="list">
+            <button class="step-btn" data-step="1" aria-current="step"><span class="k">1</span>Extract records</button>
+            <button class="step-btn" data-step="2"><span class="k">2</span>Reconcile</button>
+            <button class="step-btn" data-step="3"><span class="k">3</span>Exception report</button>
+          </div>
+        </div>
+        <div class="demo-body">
+          <aside class="docs" id="demo-docs" aria-label="Source documents"></aside>
+          <div class="stage" id="demo-stage" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="use-cases">
+    <div class="wrap">
+      <p class="eyebrow">Multi-site use cases</p>
+      <h2 class="display">Built for portfolios, not single bins.</h2>
+      <p class="lede">The more sites, providers and contracts you have, the more charges slip past unchecked. WasteLedger is built for that case.</p>
+      <div class="cases">
+        <article class="case">
+          <span class="tag">Hotel groups</span>
+          <h3>Busy service yards, frequent lifts, seasonal peaks.</h3>
+          <p>Hotels often have general waste, recycling, glass and food waste collected several times a week, each on a different contract.</p>
+          <ul>
+            <li>Check lifts billed against tickets signed at the service yard</li>
+            <li>Flag missed collections that were still charged</li>
+            <li>Compare recorded volumes per site with room counts shown alongside</li>
+          </ul>
+        </article>
+        <article class="case">
+          <span class="tag">Shopping centres</span>
+          <h3>Shared compounds and many tenants.</h3>
+          <p>Centre management pays the contractor, then recovers costs from tenants. Both sides need a ledger they can trust.</p>
+          <ul>
+            <li>Reconcile compactor, baler and bin charges by stream</li>
+            <li>Catch the same ticket keyed in twice</li>
+            <li>Export evidence packs for the service-charge audit</li>
+          </ul>
+        </article>
+        <article class="case">
+          <span class="tag">Facility operators</span>
+          <h3>Campuses, offices and mixed estates.</h3>
+          <p>FM teams look after dozens of buildings, often with a different provider in each region.</p>
+          <ul>
+            <li>One provider directory with contracts, rates and weighing method</li>
+            <li>See where weights are measured and where they are only estimated</li>
+            <li>Track exceptions through to credit note or resolution</li>
+          </ul>
+        </article>
+        <article class="case">
+          <span class="tag">Waste contractors</span>
+          <h3>Fewer disputes, faster payment.</h3>
+          <p>Contractors can share collection and weight data in a structured feed, so invoices match the customer's ledger first time.</p>
+          <ul>
+            <li>Pre-check invoices against the customer's contract terms</li>
+            <li>Answer queries with the specific ticket or weighbridge record</li>
+            <li>Shared exception threads instead of email chains</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="evidence">
+    <div class="wrap">
+      <p class="eyebrow">Evidence first</p>
+      <h2 class="display">If we can't show where a number came from, we don't report it.</h2>
+      <p class="lede">Every weight in WasteLedger is labelled with how it was captured. Totals never blend measured and estimated figures into one unlabelled number.</p>
+      <div class="tiers">
+        <article class="tier">
+          <span class="basis basis-verified">Verified</span>
+          <h3>Weighbridge record with source document</h3>
+          <p>A weighbridge ticket we hold a copy of, linked to a collection ticket.</p>
+          <p class="use">Supports disposal charges. Counts in measured totals.</p>
+        </article>
+        <article class="tier">
+          <span class="basis basis-reported">Reported</span>
+          <h3>Provider-supplied measurement</h3>
+          <p>For example, an on-board vehicle weight from the contractor's system. We have not checked it independently.</p>
+          <p class="use">Supports charges, labelled as provider-reported.</p>
+        </article>
+        <article class="tier">
+          <span class="basis basis-estimated">Estimated</span>
+          <h3>Calculated from volume</h3>
+          <p>Container size × an assumed density. The assumption and its source are always shown next to the figure.</p>
+          <p class="use">Never supports a charge. Never mixed into measured totals.</p>
+        </article>
+      </div>
+      <div class="never">
+        <strong>What we don't calculate</strong>
+        <p style="margin:0">WasteLedger does not produce recycling rates, diversion rates, savings or emissions figures from incomplete data. Where a provider supplies them, they are shown as the provider's own statement, with the document they came from.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="platform">
+    <div class="wrap">
+      <p class="eyebrow">Platform</p>
+      <h2 class="display">Built on AWS, designed for audit.</h2>
+      <p class="lede">Source documents are kept unchanged. Extraction, classification and reconciliation each leave a record you can inspect.</p>
+      <div class="arch">
+        <div class="arch-node"><span class="svc">Amazon S3</span><h3>Document vault</h3><p>Tickets, invoices, weight slips and contracts. Versioned and encrypted, with object lock for the audit trail.</p></div>
+        <div class="arch-node"><span class="svc">Amazon Textract</span><h3>Extraction</h3><p>Expense analysis for invoices, forms and queries for tickets and weight slips. Confidence kept per field.</p></div>
+        <div class="arch-node"><span class="svc">Amazon Bedrock</span><h3>Classification &amp; explanation</h3><p>Sorts documents by type and maps fields. Writes plain-language explanations from the reconciliation results only.</p></div>
+        <div class="arch-node"><span class="svc">PostgreSQL</span><h3>Operational ledger</h3><p>Sites, providers, contracts, tickets, weights, invoices and exceptions, each linked to its source document.</p></div>
+        <div class="arch-node"><span class="svc">AWS Lambda</span><h3>Scheduled reconciliation</h3><p>Runs nightly and when new invoices arrive. Raises exceptions and sends report summaries.</p></div>
+      </div>
+      <div class="arch-foot">
+        <div class="cap"><h3>The model never does the maths</h3><p>Totals, variances and matches come from deterministic code. Bedrock only classifies documents and explains results it is given, and it must cite record IDs.</p></div>
+        <div class="cap"><h3>A person checks uncertain fields</h3><p>Any field below the confidence threshold waits for review before it can support or dispute a charge.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="pricing">
+    <div class="wrap">
+      <p class="eyebrow">Pricing</p>
+      <h2 class="display">Priced by site, not by document.</h2>
+      <p class="lede">Unlimited documents and users on every plan. Prices are illustrative and exclude VAT.</p>
+      <div class="plans">
+        <article class="plan">
+          <h3>Operations</h3>
+          <div class="price">£49 <small>/ site / month</small></div>
+          <p class="muted" style="margin:0">For 3 to 15 sites with one or two providers.</p>
+          <ul>
+            <li>Collection register and weight records</li>
+            <li>Document extraction with review queue</li>
+            <li>Monthly invoice reconciliation</li>
+            <li>CSV and PDF exception reports</li>
+          </ul>
+          <a class="btn btn-ghost" href="#request" data-plan="Operations">Request a demo</a>
+        </article>
+        <article class="plan feature">
+          <h3>Portfolio</h3>
+          <div class="price">£39 <small>/ site / month</small></div>
+          <p class="muted" style="margin:0">For 16 to 150 sites across regions and providers.</p>
+          <ul>
+            <li>Everything in Operations</li>
+            <li>Nightly scheduled reconciliation</li>
+            <li>Location comparison and trend analysis</li>
+            <li>Provider exception threads</li>
+            <li>HubSpot and accounts-payable integrations</li>
+          </ul>
+          <a class="btn btn-lime" href="#request" data-plan="Portfolio">Request a demo</a>
+        </article>
+        <article class="plan">
+          <h3>Enterprise</h3>
+          <div class="price">Custom</div>
+          <p class="muted" style="margin:0">For large estates and waste contractors.</p>
+          <ul>
+            <li>Everything in Portfolio</li>
+            <li>Contractor data feeds and API</li>
+            <li>Single sign-on and custom retention</li>
+            <li>Deployment in your AWS account</li>
+          </ul>
+          <a class="btn btn-ghost" href="#request" data-plan="Enterprise">Contact sales</a>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="request">
+    <div class="wrap request">
+      <div>
+        <p class="eyebrow">Request a demo</p>
+        <h2 class="display">See it on your own invoices.</h2>
+        <p class="lede">Send us a month of tickets and invoices from two or three sites. We'll reconcile them and go through the results with you on a call.</p>
+        <ul style="color:var(--text-2);margin-top:24px;display:grid;gap:8px;padding-left:18px">
+          <li>30-minute walkthrough with an operations specialist</li>
+          <li>Your documents are deleted after the trial unless you subscribe</li>
+          <li>No commitment</li>
+        </ul>
+      </div>
+      <div id="form-wrap">
+        <form class="f" id="demo-form" novalidate>
+          <label>First name<input name="firstname" autocomplete="given-name" required><span class="err"></span></label>
+          <label>Last name<input name="lastname" autocomplete="family-name" required><span class="err"></span></label>
+          <label class="full">Work email<input name="email" type="email" autocomplete="email" required><span class="err"></span></label>
+          <label>Company<input name="company" autocomplete="organization" required><span class="err"></span></label>
+          <label>Job title<input name="jobtitle" autocomplete="organization-title"><span class="err"></span></label>
+          <label>Organisation type
+            <select name="segment" required>
+              <option value="">Choose…</option>
+              <option value="hotel_group">Hotel group</option>
+              <option value="shopping_centre">Shopping centre</option>
+              <option value="facility_operator">Facility operator</option>
+              <option value="waste_contractor">Waste contractor</option>
+              <option value="other">Other</option>
+            </select><span class="err"></span>
+          </label>
+          <label>Number of sites
+            <select name="site_count" required>
+              <option value="">Choose…</option>
+              <option>1–5</option><option>6–15</option><option>16–50</option><option>51–150</option><option>150+</option>
+            </select><span class="err"></span>
+          </label>
+          <label class="full">What would you like to check?<textarea name="message" placeholder="For example: we suspect missed collections are still being billed at two sites."></textarea></label>
+          <input type="hidden" name="plan_interest">
+          <label class="full consent"><input type="checkbox" name="consent" required><span>I agree that WasteLedger may contact me about this request. See the privacy notice.</span></label>
+          <span class="err full" id="consent-err"></span>
+          <div class="full"><button class="btn btn-primary" type="submit">Request a demo</button></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site">
+    <div class="wrap">
+      <div>
+        <strong style="color:#fff">WasteLedger</strong><br>
+        Commercial waste tracking and reconciliation.
+      </div>
+      <div style="max-width:520px">All organisations, sites, providers, tickets, weights and invoices on this site are fictional and made up for demonstration. Rates shown are illustrative only.</div>
+      <div><a href="app.html">Open the dashboard</a></div>
+    </div>
+  </footer>
+
+  <script type="module" src="js/site.js"></script>
+</body>
+</html>
