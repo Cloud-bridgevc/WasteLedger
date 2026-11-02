@@ -1,0 +1,21 @@
+{
+  "name": "WasteLedger",
+  "short_name": "WasteLedger",
+  "description": "Commercial waste tracking and invoice reconciliation for multi-site organisations.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#235a40",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

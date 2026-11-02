@@ -201,6 +201,8 @@ footer.site a { color: #dbe7df; }
   .stage { padding: 16px; }
   .never { grid-template-columns: 1fr; }
   .nav-cta { margin-left: 0; }
+  .nav .wrap { gap: 12px; }
+  .nav-cta .btn { padding-left: 10px; padding-right: 10px; white-space: nowrap; }
   .hide-sm { display: none; }
   table.t { font-size: 12.5px; }
   .demo-bar .steps { margin-left: 0; }

@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://wasteledger.site/sitemap.xml
