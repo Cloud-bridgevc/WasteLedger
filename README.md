@@ -83,11 +83,11 @@ See [docs/architecture.md](docs/architecture.md#open-items-before-production) fo
 - Edit the site in `web/` and run `npm run build` (it regenerates `public/`).
 - Home page: problem section with three sourced statistics, what-we-solve, comparison table, AI section, roadmap, team and FAQ, with scroll-reveal motion that respects reduced motion (`web/css/glow.css`, `glow.js`).
 - New pages: `/privacy`, `/terms` (review drafts). Footer credits the founders.
-- Ship assets: OG image, icons, favicon, manifest, sitemap, `_headers`, Vercel security headers, founders JSON-LD.
+- Ship assets: OG image, icons, favicon, manifest, sitemap, Vercel security headers, founders JSON-LD.
 - Fixed a horizontal overflow of the nav buttons on phones.
 
 ### Content to confirm before launch
-- **Founders are placeholders:** Chidi Okeke (Founder/CEO) and Funmilayo Ogunbiyi (Co-founder/CTO) — replace in `web/index.html` (team section, footer) and the JSON-LD.
+- **Founders:** Kingsley Winston (Founder/CEO, confirmed) and Funmilayo Ogunbiyi (Co-founder/CTO, still a placeholder) — edit in `web/index.html` (team section, footer) and the JSON-LD.
 - Contact email `hello@wasteledger.site` is a placeholder — create the forward or replace it.
 - Statistics (US EPA Facts and Figures, 2018 data) — re-check figures and links.
 - Privacy notice and terms need operator details and governing law.
