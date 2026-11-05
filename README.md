@@ -87,7 +87,7 @@ See [docs/architecture.md](docs/architecture.md#open-items-before-production) fo
 - Fixed a horizontal overflow of the nav buttons on phones.
 
 ### Content to confirm before launch
-- **Founders are placeholders:** Chidi Okeke (Founder/CEO) and Funmilayo Ogunbiyi (Co-founder/CTO) — replace in `web/index.html` (team section, footer) and the JSON-LD.
+- **Founders:** Kingsley Winston (Founder/CEO, confirmed) and Funmilayo Ogunbiyi (Co-founder/CTO, still a placeholder) — edit in `web/index.html` (team section, footer) and the JSON-LD.
 - Contact email `hello@wasteledger.site` is a placeholder — create the forward or replace it.
 - Statistics (US EPA Facts and Figures, 2018 data) — re-check figures and links.
 - Privacy notice and terms need operator details and governing law.
